@@ -52,13 +52,28 @@ jobs:
             curl -L -o "${{ inputs.apk_name }}" "${{ inputs.apk_url }}"
           elif [ -n "${{ inputs.apkmirror_page_url }}" ]; then
             echo "Descargando desde APKMirror..."
-            # 1. Obtener HTML usando cf_get.py (modo get)
-            python scripts/cf_get.py get "${{ inputs.apkmirror_page_url }}" > page.html
-            # 2. Extraer URL de descarga
-            DOWNLOAD_URL=$(python scripts/apkmirror_search.py download < page.html)
-            echo "URL obtenida: $DOWNLOAD_URL"
-            # 3. Descargar archivo final
-            python scripts/cf_get.py download "$DOWNLOAD_URL" "${{ inputs.apk_name }}" --referer "${{ inputs.apkmirror_page_url }}"
+            
+            # 1. Obtener el HTML de la página principal
+            python scripts/cf_get.py "${{ inputs.apkmirror_page_url }}" > page1.html
+            
+            # 2. Extraer la URL intermedia (con el ?key=)
+            KEY_URL=$(python scripts/apkmirror_search.py download < page1.html 2>/dev/null || true)
+            
+            if [ -n "$KEY_URL" ]; then
+              echo "Enlace intermedio obtenido: $KEY_URL"
+              # 3. Obtener el HTML de la página intermedia
+              python scripts/cf_get.py "$KEY_URL" > page2.html
+              # 4. Extraer el enlace FINAL del archivo
+              FINAL_URL=$(python scripts/apkmirror_search.py final < page2.html)
+            else
+              # Si falló el paso 2, intentar sacar el enlace final directo
+              FINAL_URL=$(python scripts/apkmirror_search.py final < page1.html)
+            fi
+            
+            echo "Enlace FINAL obtenido: $FINAL_URL"
+            
+            # 5. Descargar archivo (Argumentos posicionales: URL, Destino, Referer)
+            python scripts/cf_get.py download "$FINAL_URL" "${{ inputs.apk_name }}" "${{ inputs.apkmirror_page_url }}"
           else
             echo "ERROR: Debes proporcionar apk_url o apkmirror_page_url."
             exit 1
@@ -67,8 +82,9 @@ jobs:
 
       - name: Fusionar Splits (si es necesario)
         run: |
-          # Descargar APKEditor
-          curl -sSL https://github.com/REAndroid/APKEditor/releases/latest/download/APKEditor.jar -o APKEditor.jar
+          # Descargar APKEditor obteniendo la URL real (evita el error 404)
+          APKEDITOR_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | grep '"browser_download_url"' | grep '\.jar"' | head -n1 | cut -d'"' -f4)
+          curl -sSL "$APKEDITOR_URL" -o APKEditor.jar
           
           if [[ "${{ inputs.apk_name }}" == *.apkm || "${{ inputs.apk_name }}" == *.xapk || "${{ inputs.apk_name }}" == *.apks ]]; then
             echo "Detectado archivo de splits. Fusionando..."
