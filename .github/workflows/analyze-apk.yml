@@ -110,11 +110,13 @@ jobs:
           npx -y rea-agents@latest inspect-android-package "${{ env.TARGET }}" --json > rea-output.json
 
       - name: Descompilación con JADX (Deofuscado)
+        continue-on-error: true
         run: |
-          echo "Generando código deofuscado..."
-          jadx --deobf -d jadx-full "${{ env.TARGET }}"
+          echo "Generando código deofuscado (ignorando errores de JADX)..."
+          jadx --deobf --show-bad-code -d jadx-full "${{ env.TARGET }}" || true
 
       - name: Subir Artefacto de Análisis
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: analisis-apk-${{ github.run_id }}
