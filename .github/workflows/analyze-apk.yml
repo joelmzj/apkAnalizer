@@ -97,6 +97,13 @@ jobs:
           fi
           echo "TARGET=$ANALYZE_TARGET" >> $GITHUB_ENV
 
+      - name: Descargar JADX Headless para REA
+        run: |
+          mkdir -p "$HOME/.local/share/rea/android"
+          curl -fL -o "$HOME/.local/share/rea/android/jadx-headless-mcp-0.7.1-all.jar" \
+            https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+          echo "REA_JADX_MCP_JAR=$HOME/.local/share/rea/android/jadx-headless-mcp-0.7.1-all.jar" >> $GITHUB_ENV
+
       - name: Análisis con REA
         run: |
           echo "Ejecutando REA sobre ${{ env.TARGET }}..."
