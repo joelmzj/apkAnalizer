@@ -1,1 +1,101 @@
+name: Analyze APK with REA
 
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'URL directa de la APK (ignorar si usas APKMirror)'
+        required: false
+        type: string
+      apkmirror_page_url:
+        description: 'URL de la página de APKMirror (ignorar si usas URL directa)'
+        required: false
+        type: string
+      apk_name:
+        description: 'Nombre del archivo (ej. target.apk, app.apkm, app.xapk)'
+        required: true
+        default: 'target.apk'
+        type: string
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (REA requiere >=22.19)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.19'
+
+      - name: Setup Java 17 (JADX y APKEditor)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Instalar dependencias Python
+        run: pip install -r requirements.txt
+
+      - name: Instalar JADX headless
+        run: |
+          JADX_VERSION=$(curl -s https://api.github.com/repos/skylot/jadx/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+          curl -sSL "https://github.com/skylot/jadx/releases/download/${JADX_VERSION}/jadx-${JADX_VERSION#v}.zip" -o jadx.zip
+          unzip -q jadx.zip -d jadx
+          echo "$PWD/jadx/bin" >> $GITHUB_PATH
+
+      - name: Descargar APK (Directa o APKMirror)
+        run: |
+          if [ -n "${{ inputs.apk_url }}" ]; then
+            echo "Descargando desde URL directa..."
+            curl -L -o "${{ inputs.apk_name }}" "${{ inputs.apk_url }}"
+          elif [ -n "${{ inputs.apkmirror_page_url }}" ]; then
+            echo "Descargando desde APKMirror..."
+            # 1. Obtener HTML usando cf_get.py (modo get)
+            python scripts/cf_get.py get "${{ inputs.apkmirror_page_url }}" > page.html
+            # 2. Extraer URL de descarga
+            DOWNLOAD_URL=$(python scripts/apkmirror_search.py download < page.html)
+            echo "URL obtenida: $DOWNLOAD_URL"
+            # 3. Descargar archivo final
+            python scripts/cf_get.py download "$DOWNLOAD_URL" "${{ inputs.apk_name }}" --referer "${{ inputs.apkmirror_page_url }}"
+          else
+            echo "ERROR: Debes proporcionar apk_url o apkmirror_page_url."
+            exit 1
+          fi
+          ls -lh "${{ inputs.apk_name }}"
+
+      - name: Fusionar Splits (si es necesario)
+        run: |
+          # Descargar APKEditor
+          curl -sSL https://github.com/REAndroid/APKEditor/releases/latest/download/APKEditor.jar -o APKEditor.jar
+          
+          if [[ "${{ inputs.apk_name }}" == *.apkm || "${{ inputs.apk_name }}" == *.xapk || "${{ inputs.apk_name }}" == *.apks ]]; then
+            echo "Detectado archivo de splits. Fusionando..."
+            java -jar APKEditor.jar m -i "${{ inputs.apk_name }}" -o merged.apk
+            ANALYZE_TARGET="merged.apk"
+          else
+            echo "APK única. Omitiendo merge."
+            cp "${{ inputs.apk_name }}" merged.apk
+            ANALYZE_TARGET="merged.apk"
+          fi
+          echo "TARGET=$ANALYZE_TARGET" >> $GITHUB_ENV
+
+      - name: Análisis con REA
+        run: |
+          echo "Ejecutando REA sobre ${{ env.TARGET }}..."
+          npx -y rea-agents@latest inspect-android-package "${{ env.TARGET }}" --json > rea-output.json
+
+      - name: Descompilación con JADX (Deofuscado)
+        run: |
+          echo "Generando código deofuscado..."
+          jadx --deobf -d jadx-full "${{ env.TARGET }}"
+
+      - name: Subir Artefacto de Análisis
+        uses: actions/upload-artifact@v4
+        with:
+          name: analisis-apk-${{ github.run_id }}
+          path: |
+            rea-output.json
+            jadx-full/
+          retention-days: 7
