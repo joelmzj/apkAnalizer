@@ -86,8 +86,8 @@ jobs:
           APKEDITOR_URL=$(curl -s https://api.github.com/repos/REAndroid/APKEditor/releases/latest | grep '"browser_download_url"' | grep '\.jar"' | head -n1 | cut -d'"' -f4)
           curl -sSL "$APKEDITOR_URL" -o APKEditor.jar
           
-          if [[ "${{ inputs.apk_name }}" == *.apkm || "${{ inputs.apk_name }}" == *.xapk || "${{ inputs.apk_name }}" == *.apks ]]; then
-            echo "Detectado archivo de splits. Fusionando..."
+          if [[ "${{ inputs.apk_name }}" == *.apkm || "${{ inputs.apk_name }}" == *.xapk || "${{ inputs.apk_name }}" == *.apks || "${{ inputs.apk_name }}" == *.zip ]]; then
+            echo "Detectado archivo de splits (APKM/XAPK/APKS/ZIP). Fusionando..."
             java -jar APKEditor.jar m -i "${{ inputs.apk_name }}" -o merged.apk
             ANALYZE_TARGET="merged.apk"
           else
